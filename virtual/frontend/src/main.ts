@@ -143,6 +143,8 @@ const ROT_SPEED = 1;
 let FW = 0;
 let ROT = 0;
 
+let gdflag = false;
+
 document.addEventListener("keydown", (e) => {
     const key = e.key;
     if (key === 'w') {
@@ -153,6 +155,9 @@ document.addEventListener("keydown", (e) => {
     }
     if (key === 'd') {
         ROT = -1;
+    }
+    if (key === 'u') {
+        gdflag = true;
     }
 }, false);
 
@@ -170,6 +175,7 @@ document.addEventListener("keyup", (e) => {
 }, false);
 
 
+
 function animate() {
     const delta = clock.getDelta();
     controls.update();
@@ -182,43 +188,98 @@ function animate() {
     camera2.position.add(direction.multiplyScalar(delta * FW * MOVE_SPEED));
     camera2.rotateY(ROT * delta * ROT_SPEED);
 
-    // capture
-    const wc = canvas2.offsetWidth;
-    const wh = canvas2.offsetHeight;
-    canvas3.width = wc;
-    canvas3.height = wh;
+    if (gdflag) {
+        gdflag = false;
+        // capture
+        const wc = canvas2.offsetWidth;
+        const wh = canvas2.offsetHeight;
+        canvas3.width = 1000;
+        canvas3.height = 1000;
 
 
-    function getPixels(x: number, y: number, width: number, height: number) {
-        const length = width * height * 4;
-        const row = width * 4;
-        const end = (height - 1) * row;
-        const arr = new Uint8Array(length);
-        const pixels = new Uint8Array(length);
+        function getPixels(x: number, y: number, width: number, height: number) {
+            const length = width * height * 4;
+            const row = width * 4;
+            const end = (height - 1) * row;
+            const arr = new Uint8Array(length);
+            const pixels = new Uint8Array(length);
 
-        renderer2.getContext().readPixels(x, y, width, height, WebGL2RenderingContext.RGBA, WebGL2RenderingContext.UNSIGNED_BYTE, arr);
+            renderer2.getContext().readPixels(x, y, width, height, WebGL2RenderingContext.RGBA, WebGL2RenderingContext.UNSIGNED_BYTE, arr);
 
-        for (let i = 0; i < length; i += row) {
-            pixels.set(arr.subarray(i, i + row), end - i);
+            for (let i = 0; i < length; i += row) {
+                pixels.set(arr.subarray(i, i + row), end - i);
+            }
+
+            return pixels;
+        }
+        const pixels = getPixels(0, 0, wc, wh);
+
+        const t = Date.now();
+        const ctx3 = canvas3.getContext('2d');
+        const d3 = ctx3?.createImageData(wc, wh) as ImageData;
+        d3.data.set(pixels);
+        ctx3?.putImageData(d3, 0, 0);
+
+        let img = tf.browser.fromPixels(canvas3, 3);
+        img = tf.div(img, 255);
+        img = tf.image.resizeBilinear(img, [256, 256]);
+
+        // console.log(img.dataSync());
+        // @ts-ignore
+        const input = tf.reshape(img, [1, 256, 256, 3]);
+        let outputTensor = tfliteModel.predict(input) as tf.Tensor;
+
+        console.log({outputTensor, })
+
+        let depthImageGrayscale = tf.reshape(outputTensor, [256,256,1]);
+        // console.log({outputTensor, depthImageGrayscale})
+
+
+
+        // console.log({ outrgb })
+        // @ts-ignore
+        // const depthd = tf.image.resizeBilinear(depthImageGrayscale, [wc, wh]);
+
+        function toPixels(tensor: tf.Tensor): ImageData {
+            const pixels = tensor.dataSync();
+            const imageData = new ImageData(tensor.shape[0] as number, tensor.shape[1] as number);
+            // console.log()
+            if (tensor.shape.length == 2 || tensor.shape[2] == 1) {
+                // Grayscale
+                for (let i = 0; i < pixels.length; i++) {
+                    imageData.data[i * 4 + 0] = pixels[i];
+                    imageData.data[i * 4 + 1] = pixels[i];
+                    imageData.data[i * 4 + 2] = pixels[i];
+                    imageData.data[i * 4 + 3] = 255;
+                }
+            } else if (tensor.shape[2] == 3) {
+                // RGB
+                for (let i = 0; i < pixels.length / 3; i++) {
+                    imageData.data[i * 4 + 0] = pixels[i * 3 + 0];
+                    imageData.data[i * 4 + 1] = pixels[i * 3 + 1];
+                    imageData.data[i * 4 + 2] = pixels[i * 3 + 2];
+                    imageData.data[i * 4 + 3] = 255;
+                }
+            } else if (tensor.shape[2] == 4) {
+                // RGBA
+                imageData.data.set(pixels);
+            }
+            return imageData;
         }
 
-        return pixels;
+        console.log({depthImageGrayscale, img})
+        const dpixels = toPixels(depthImageGrayscale);
+        console.log({dpixels})
+        // canvas3.width = 256;
+        // canvas3.height = 256;
+        // ctx3?.putImageData(dpixels, 0, 0);
+
+        // console.log(outd)
+        console.log(Date.now() - t);
+
     }
-    const pixels = getPixels(0,0,wc,wh);
 
-
-    const ctx3 = canvas3.getContext('2d');
-    const d3 = ctx3?.createImageData(wc, wh) as ImageData;
-    d3.data.set(pixels);
-    ctx3?.putImageData(d3, 0, 0);
-
-    let img = tf.browser.fromPixels(canvas3, 3);
-    img = tf.div(img, 255);
-    img = tf.image.resizeBilinear(img, [256,256]);
-    // @ts-ignore
-    img = tf.reshape(img, [-1]);
-    let outputTensor = tfliteModel.predict(img) as tf.Tensor;
-    console.log(outputTensor.dataSync());
+    // tf.image.resizeBilinear(outd, [wc,wh]);
 
 
 
