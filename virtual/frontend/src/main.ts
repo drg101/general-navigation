@@ -1,18 +1,10 @@
 import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import '@tensorflow/tfjs-backend-cpu';
 
-import * as tf from '@tensorflow/tfjs-core';
-// Import @tensorflow/tfjs-tflite.
-import * as tflite from '@tensorflow/tfjs-tflite';
-
-
-const tfliteModel = await tflite.loadTFLiteModel('./src/assets/d1.tflite');
-
-console.log(tfliteModel)
-
-
+function mod(n: number, m: number) {
+    return ((n % m) + m) % m;
+}
 
 function createPathStrings(filename: string) {
     const basePath = "./src/assets/";
@@ -25,11 +17,9 @@ function createPathStrings(filename: string) {
     return pathStings;
 }
 
-const views = [];
 
 const canvas1 = document.getElementById('canvas1') as HTMLCanvasElement;
 const canvas2 = document.getElementById('canvas2') as HTMLCanvasElement;
-const canvas3 = document.getElementById('canvas3') as HTMLCanvasElement;
 
 
 const scene = new THREE.Scene();
@@ -82,21 +72,26 @@ renderer2.shadowMap.type = THREE.PCFSoftShadowMap;
 
 // add crates
 {
+    const colorArray = ['#FF6633', '#FFB399', '#FF33FF', '#FFFF99', '#00B3E6',
+        '#E6B333', '#3366E6', '#999966', '#99FF99', '#B34D4D',
+        '#80B300', '#809900', '#E6B3B3', '#6680B3', '#66991A',
+        '#FF99E6', '#CCFF1A', '#FF1A66', '#E6331A', '#33FFCC',
+        '#66994D', '#B366CC', '#4D8000', '#B33300', '#CC80CC',
+        '#66664D', '#991AFF', '#E666FF', '#4DB3FF', '#1AB399',
+        '#E666B3', '#33991A', '#CC9999', '#B3B31A', '#00E680',
+        '#4D8066', '#809980', '#E6FF80', '#1AFF33', '#999933',
+        '#FF3380', '#CCCC00', '#66E64D', '#4D80CC', '#9900B3',
+        '#E64D66', '#4DB380', '#FF4D4D', '#99E6E6', '#6666FF'];
     function getRandomCrate(): THREE.Mesh<any, any> {
-        const crateNum = Math.round(Math.random() * 9) + 1;
+        const geometry = new THREE.CylinderGeometry(5, 5, 20, 32);
+        const randColor = colorArray[Math.floor(Math.random() * colorArray.length)];
+        const material = new THREE.MeshStandardMaterial({ color: randColor });
+        const cylinder = new THREE.Mesh(geometry, material);
+        scene.add(cylinder);
 
-        const crateTexture = new THREE.TextureLoader().load(`./src/assets/crates/${crateNum}.jpg`);
-        const createTextureNormalMap = new THREE.TextureLoader().load(`./src/assets/crates/${crateNum}_N.png`);
-
-        const crateSize = 5 * Math.random() + 2.5;
-        const crate = new THREE.Mesh(
-            new THREE.BoxGeometry(crateSize, crateSize, crateSize),
-            new THREE.MeshStandardMaterial({ map: crateTexture, normalMap: createTextureNormalMap })
-        );
-
-        crate.castShadow = true;
-        crate.position.set(Math.random() * 250 - 125, crateSize / 2, Math.random() * 250 - 125);
-        return crate;
+        cylinder.castShadow = true;
+        cylinder.position.set(Math.random() * 250 - 125, 1, Math.random() * 250 - 125);
+        return cylinder;
     }
     for (let i = 0; i < 100; i++) {
         const crate = getRandomCrate();
@@ -174,7 +169,16 @@ document.addEventListener("keyup", (e) => {
     }
 }, false);
 
+const goal = new THREE.Vector2(Math.random() * 250 - 125, Math.random() * 250 - 125);
+{ // add goal
+    const geometry = new THREE.CylinderGeometry(1, 1, 150, 32);
+    const material = new THREE.MeshStandardMaterial({ color: "#FF0000" });
+    const cylinder = new THREE.Mesh(geometry, material);
+    scene.add(cylinder);
 
+    cylinder.castShadow = true;
+    cylinder.position.set(goal.x, 0, goal.y);
+}
 
 function animate() {
     const delta = clock.getDelta();
@@ -190,107 +194,38 @@ function animate() {
 
     if (gdflag) {
         gdflag = false;
-        // capture
-        const wc = canvas2.offsetWidth;
-        const wh = canvas2.offsetHeight;
-        canvas3.width = 1000;
-        canvas3.height = 1000;
-
-
-        function getPixels(x: number, y: number, width: number, height: number) {
-            const length = width * height * 4;
-            const row = width * 4;
-            const end = (height - 1) * row;
-            const arr = new Uint8Array(length);
-            const pixels = new Uint8Array(length);
-
-            renderer2.getContext().readPixels(x, y, width, height, WebGL2RenderingContext.RGBA, WebGL2RenderingContext.UNSIGNED_BYTE, arr);
-
-            for (let i = 0; i < length; i += row) {
-                pixels.set(arr.subarray(i, i + row), end - i);
+        const angleToGoal = (Math.atan2(goal.y - camera2.position.z, goal.x - camera2.position.x) + Math.PI) / 2 / Math.PI * 360;
+        const cameraAngle = camera2.rotation;
+        let ang = cameraAngle.y;
+        if(cameraAngle.z !== 0) {
+            console.log(cameraAngle.y);
+            if(cameraAngle.y < 0) {
+                ang = -((Math.PI / 2) + cameraAngle.y) - (Math.PI / 2)
             }
-
-            return pixels;
-        }
-        const pixels = getPixels(0, 0, wc, wh);
-
-        const t = Date.now();
-        const ctx3 = canvas3.getContext('2d');
-        const d3 = ctx3?.createImageData(wc, wh) as ImageData;
-        d3.data.set(pixels);
-        ctx3?.putImageData(d3, 0, 0);
-
-        let img = tf.browser.fromPixels(canvas3, 3);
-        img = tf.div(img, 255);
-        img = tf.image.resizeBilinear(img, [256, 256]);
-
-        // console.log(img.dataSync());
-        // @ts-ignore
-        const input = tf.reshape(img, [1, 256, 256, 3]);
-        let outputTensor = tfliteModel.predict(input) as tf.Tensor;
-
-        console.log({outputTensor, })
-
-        let depthImageGrayscale = tf.reshape(outputTensor, [256,256,1]);
-        // console.log({outputTensor, depthImageGrayscale})
-
-
-
-        // console.log({ outrgb })
-        // @ts-ignore
-        // const depthd = tf.image.resizeBilinear(depthImageGrayscale, [wc, wh]);
-
-        function toPixels(tensor: tf.Tensor): ImageData {
-            const pixels = tensor.dataSync();
-            const imageData = new ImageData(tensor.shape[0] as number, tensor.shape[1] as number);
-            // console.log()
-            if (tensor.shape.length == 2 || tensor.shape[2] == 1) {
-                // Grayscale
-                for (let i = 0; i < pixels.length; i++) {
-                    imageData.data[i * 4 + 0] = pixels[i];
-                    imageData.data[i * 4 + 1] = pixels[i];
-                    imageData.data[i * 4 + 2] = pixels[i];
-                    imageData.data[i * 4 + 3] = 255;
-                }
-            } else if (tensor.shape[2] == 3) {
-                // RGB
-                for (let i = 0; i < pixels.length / 3; i++) {
-                    imageData.data[i * 4 + 0] = pixels[i * 3 + 0];
-                    imageData.data[i * 4 + 1] = pixels[i * 3 + 1];
-                    imageData.data[i * 4 + 2] = pixels[i * 3 + 2];
-                    imageData.data[i * 4 + 3] = 255;
-                }
-            } else if (tensor.shape[2] == 4) {
-                // RGBA
-                imageData.data.set(pixels);
+            else {
+                ang = (Math.PI / 2) + ((Math.PI / 2) - cameraAngle.y)
             }
-            return imageData;
         }
-
-        console.log({depthImageGrayscale, img})
-        const dpixels = toPixels(depthImageGrayscale);
-        console.log({dpixels})
-        // canvas3.width = 256;
-        // canvas3.height = 256;
-        // ctx3?.putImageData(dpixels, 0, 0);
-
-        // console.log(outd)
-        console.log(Date.now() - t);
-
+        ang = ((ang + Math.PI) / 2) / Math.PI * 360;
+        const diff = (angleToGoal - ang);
+        console.log({angleToGoal, ang, diff})
+        canvas2.toBlob(function (blob) {
+            if (!blob) {
+                return;
+            }
+            const formdata = new FormData();
+            formdata.append('direction', '123');
+            formdata.append("files", blob, `ang0.jpeg`);
+            var requestOptions: RequestInit = {
+                method: "POST",
+                body: formdata,
+                redirect: "follow",
+            };
+            fetch("http://localhost:5000/run", requestOptions)
+                .then((response) => response.text())
+                .then((result) => console.log(result))
+                .catch((error) => console.log("error", error));
+        }, 'image/jpeg');
     }
-
-    // tf.image.resizeBilinear(outd, [wc,wh]);
-
-
-
-
-
-    // const input = tf.browser.fromPixels(canvas2);
-    // console.log(input)
-    // let outputTensor = tfliteModel.predict(input) as tf.Tensor;
-    // console.log(outputTensor.dataSync());
-    // console.log(camera.position);
-    // cube.rotation.x += 0.01;
-    // cube.rotation.y += 0.01;
 }
 animate();
