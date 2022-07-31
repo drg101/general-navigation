@@ -23,8 +23,8 @@ const canvas2 = document.getElementById('canvas2') as HTMLCanvasElement;
 
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(90, canvas1.offsetWidth / canvas1.offsetHeight, 0.1, 1000);
-const camera2 = new THREE.PerspectiveCamera(75, canvas2.offsetWidth / canvas2.offsetHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(120, canvas1.offsetWidth / canvas1.offsetHeight, 0.1, 1000);
+const camera2 = new THREE.PerspectiveCamera(90, canvas2.offsetWidth / canvas2.offsetHeight, 0.1, 1000);
 
 
 const renderer = new THREE.WebGLRenderer({
@@ -72,28 +72,23 @@ renderer2.shadowMap.type = THREE.PCFSoftShadowMap;
 
 // add crates
 {
-    const colorArray = ['#FF6633', '#FFB399', '#FF33FF', '#FFFF99', '#00B3E6',
-        '#E6B333', '#3366E6', '#999966', '#99FF99', '#B34D4D',
-        '#80B300', '#809900', '#E6B3B3', '#6680B3', '#66991A',
-        '#FF99E6', '#CCFF1A', '#FF1A66', '#E6331A', '#33FFCC',
-        '#66994D', '#B366CC', '#4D8000', '#B33300', '#CC80CC',
-        '#66664D', '#991AFF', '#E666FF', '#4DB3FF', '#1AB399',
-        '#E666B3', '#33991A', '#CC9999', '#B3B31A', '#00E680',
-        '#4D8066', '#809980', '#E6FF80', '#1AFF33', '#999933',
-        '#FF3380', '#CCCC00', '#66E64D', '#4D80CC', '#9900B3',
-        '#E64D66', '#4DB380', '#FF4D4D', '#99E6E6', '#6666FF'];
     function getRandomCrate(): THREE.Mesh<any, any> {
-        const geometry = new THREE.CylinderGeometry(5, 5, 20, 32);
-        const randColor = colorArray[Math.floor(Math.random() * colorArray.length)];
-        const material = new THREE.MeshStandardMaterial({ color: randColor });
-        const cylinder = new THREE.Mesh(geometry, material);
-        scene.add(cylinder);
+        const crateNum = Math.round(Math.random() * 9) + 1;
 
-        cylinder.castShadow = true;
-        cylinder.position.set(Math.random() * 250 - 125, 1, Math.random() * 250 - 125);
-        return cylinder;
+        const crateTexture = new THREE.TextureLoader().load(`./src/assets/crates/${crateNum}.jpg`);
+        const createTextureNormalMap = new THREE.TextureLoader().load(`./src/assets/crates/${crateNum}_N.png`);
+
+        const crateSize = 20 * Math.random() + 2.5;
+        const crate = new THREE.Mesh(
+            new THREE.BoxGeometry(crateSize, crateSize, crateSize),
+            new THREE.MeshStandardMaterial({ map: crateTexture, normalMap: createTextureNormalMap })
+        );
+
+        crate.castShadow = true;
+        crate.position.set(Math.random() * 250 - 125, crateSize / 2, Math.random() * 250 - 125);
+        return crate;
     }
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 75; i++) {
         const crate = getRandomCrate();
         scene.add(crate);
     }
@@ -121,17 +116,14 @@ renderer2.shadowMap.type = THREE.PCFSoftShadowMap;
     scene.fog = new THREE.Fog(color, near, far);
 }
 
-const bob = new THREE.SphereGeometry();
+const bob = new THREE.ConeGeometry(1, 2.5, 15);
+bob.rotateX(-Math.PI / 2);
 const bobject = new THREE.Mesh(bob, new THREE.MeshStandardMaterial({ color: 0xff0000 }));
 scene.add(camera2);
 camera2.add(bobject);
 camera2.position.set(0, 2, 0);
 
 const clock = new THREE.Clock();
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.domElement = renderer.domElement;
-camera.position.set(0, 5, 0)
-
 const MOVE_SPEED = 3;
 const ROT_SPEED = 1;
 
@@ -180,52 +172,140 @@ const goal = new THREE.Vector2(Math.random() * 250 - 125, Math.random() * 250 - 
     cylinder.position.set(goal.x, 0, goal.y);
 }
 
-function animate() {
-    const delta = clock.getDelta();
-    controls.update();
-    requestAnimationFrame(animate);
+function shortestAngle(angle1: number, angle2: number) {
+    let diff = (angle2 - angle1 + 180) % 360 - 180;
+    return diff < -180 ? diff + 360 : diff;
+}
+
+async function sleep(time: number) {
+    return new Promise<void>(resolve => {
+        setTimeout(() => {
+            resolve();
+        }, time)
+    });
+}
+
+async function getCanvasAsBlob() {
     renderer.render(scene, camera);
     renderer2.render(scene, camera2);
-
-    let direction = new THREE.Vector3();
-    camera2.getWorldDirection(direction);
-    camera2.position.add(direction.multiplyScalar(delta * FW * MOVE_SPEED));
-    camera2.rotateY(ROT * delta * ROT_SPEED);
-
-    if (gdflag) {
-        gdflag = false;
-        const angleToGoal = (Math.atan2(goal.y - camera2.position.z, goal.x - camera2.position.x) + Math.PI) / 2 / Math.PI * 360;
-        const cameraAngle = camera2.rotation;
-        let ang = cameraAngle.y;
-        if(cameraAngle.z !== 0) {
-            console.log(cameraAngle.y);
-            if(cameraAngle.y < 0) {
-                ang = -((Math.PI / 2) + cameraAngle.y) - (Math.PI / 2)
-            }
-            else {
-                ang = (Math.PI / 2) + ((Math.PI / 2) - cameraAngle.y)
-            }
-        }
-        ang = ((ang + Math.PI) / 2) / Math.PI * 360;
-        const diff = (angleToGoal - ang);
-        console.log({angleToGoal, ang, diff})
+    return new Promise<Blob | undefined>(resolve => {
         canvas2.toBlob(function (blob) {
             if (!blob) {
+                resolve(undefined);
                 return;
             }
-            const formdata = new FormData();
-            formdata.append('direction', '123');
-            formdata.append("files", blob, `ang0.jpeg`);
-            var requestOptions: RequestInit = {
-                method: "POST",
-                body: formdata,
-                redirect: "follow",
-            };
-            fetch("http://localhost:5000/run", requestOptions)
-                .then((response) => response.text())
-                .then((result) => console.log(result))
-                .catch((error) => console.log("error", error));
+
+            resolve(blob);
         }, 'image/jpeg');
+    });
+}
+
+let mostRecentUpdate = 0;
+let updating = false;
+let timeUntil = 1000;
+// let pauseRendering = false;
+
+function animate() {
+    if (!updating) {
+        const delta = clock.getDelta();
+        renderer.render(scene, camera);
+        renderer2.render(scene, camera2);
+        let direction = new THREE.Vector3();
+        camera2.getWorldDirection(direction);
+        camera2.position.add(direction.multiplyScalar(1 / 60 * FW * MOVE_SPEED));
+        camera2.rotateY(ROT * delta * ROT_SPEED);
+
+
+        // console.log(Date.now() - mostRecentUpdate);
+        if (Date.now() - mostRecentUpdate > timeUntil) {
+            updating = true;
+            const cameraAngle = camera2.quaternion;
+            const copied = cameraAngle.clone();
+            const worldDirection = camera2.getWorldDirection(new THREE.Vector3());
+            const oldRot = Math.atan2(worldDirection.x, worldDirection.z) / (Math.PI * 2) * 360 + 180;
+
+            camera2.lookAt(new THREE.Vector3(goal.x, 0, goal.y));
+            const newWorldDirection = camera2.getWorldDirection(new THREE.Vector3());
+            const newRot = Math.atan2(newWorldDirection.x, newWorldDirection.z) / (Math.PI * 2) * 360 + 180;
+
+            const angleTo = Math.floor(shortestAngle(oldRot, newRot));
+
+            camera2.setRotationFromQuaternion(copied);
+
+            (async () => {
+                let passThrough = true;
+                console.log("minit" + Math.abs(angleTo))
+                if (Math.abs(angleTo) < 20) {
+                    passThrough = false;
+                    const formdata = new FormData();
+                    formdata.append('direction', `${angleTo}`);
+                    const blob = await getCanvasAsBlob();
+                    if (!blob) {
+                        console.error("Horrible thing has happened");
+                    }
+                    else {
+                        formdata.append("files", blob, `ang_0.jpeg`);
+                    }
+                    var requestOptions: RequestInit = {
+                        method: "POST",
+                        body: formdata,
+                        redirect: "follow",
+                    };
+                    let res = await fetch("http://localhost:5000/try_fw", requestOptions);
+                    let resText = await res.text();
+                    console.log({resText})
+                    if(Number(resText) > 60) {
+                        passThrough = true;
+                    }
+                    else {
+                        timeUntil = 2500 - (Number(resText) * 25)
+                    }
+                }
+
+                if(passThrough) {
+                    const formdata = new FormData();
+                    formdata.append('direction', `${angleTo}`);
+                    let rots = [];
+                    let originalRot = camera2.quaternion.clone();
+                    for (let i = 0; i < 360; i += Math.floor(Math.random() * 45) + 10) {
+                        let rotRad = i / 360 * Math.PI * 2;
+                        rots.push(rotRad);
+                        camera2.rotateY(rotRad);
+                        const blob = await getCanvasAsBlob();
+                        if (!blob) {
+                            console.error("Horrible thing has happened");
+                            continue;
+                        }
+                        formdata.append("files", blob, `ang_${i}.jpeg`);
+                        await sleep(10);
+                        camera2.setRotationFromQuaternion(originalRot);
+                    }
+                    renderer.render(scene, camera);
+                    var requestOptions: RequestInit = {
+                        method: "POST",
+                        body: formdata,
+                        redirect: "follow",
+                    };
+                    let res = await fetch("http://localhost:5000/run", requestOptions);
+                    let resText = await res.text();
+                    console.log("Got response");
+                    console.log(resText, rots)
+                    const ind = resText.split(",")[0];
+                    const score = resText.split(",")[1];
+                    camera2.rotateY(rots[Number(ind)]);
+                    timeUntil = 750;
+                }
+                mostRecentUpdate = Date.now();
+                FW = 1;
+                console.log("setting to false");
+                updating = false;
+            })();
+        }
+        const dir = new THREE.Vector3();
+        dir.subVectors(camera2.position, new THREE.Vector3(goal.x, 0, goal.y)).normalize();
+        camera.position.set(camera2.position.x + dir.x * 10, 5, camera2.position.z + dir.z * 10);
+        camera.lookAt(new THREE.Vector3(goal.x, 0, goal.y));
     }
+    requestAnimationFrame(animate);
 }
 animate();
